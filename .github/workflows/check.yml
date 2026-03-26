@@ -1,0 +1,34 @@
+name: Daily Node Check
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # 每天 UTC 时间 0:00 (北京时间早上8点) 运行
+  workflow_dispatch: # 允许手动点击运行
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run Script
+        env:
+          SUB_LINKS: ${{ secrets.SUB_LINKS }}
+        run: python main.py
+
+      - name: Commit and Push
+        run: |
+          git config --global user.name "GitHub Action"
+          git config --global user.email "action@github.com"
+          git add top_asia_nodes.txt
+          git commit -m "Update top 30 nodes" || exit 0
+          git push
