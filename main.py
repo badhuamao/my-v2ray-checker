@@ -6,86 +6,82 @@ import os
 import json
 from urllib.parse import urlparse, unquote
 
-# 更加严格的亚洲关键字（避免匹配到包含这些字母的随机字符串）
-ASIA_KEYWORDS = ['香港', 'HK', 'HONGKONG', '日本', 'JP', 'JAPAN', '新加坡', 'SG', 'SINGAPORE', '韩国', 'KR', 'KOREA', '台湾', 'TW', 'TAIWAN']
-
-def get_sub_links():
-    links = os.environ.get('SUB_LINKS', '')
-    return [l.strip() for l in links.split('\n') if l.strip()]
-
-def test_tcp(ip, port, timeout=1.5):
-    """快速过滤不可连接的 IP"""
-    try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(timeout)
-        result = sock.connect_ex((ip, int(port)))
-        sock.close()
-        return result == 0
-    except:
-        return False
+# 关键词扩展：包含地区简称和常用中文名
+ASIA_KEYWORDS = ['HK', 'HONGKONG', '香港', 'JP', 'JAPAN', '日本', 'SG', 'SINGAPORE', '新加坡', 'KR', 'KOREA', '韩国', 'TW', 'TAIWAN', '台湾']
 
 def safe_base64_decode(data):
-    """通用的 Base64 解码，处理各种不规范的 padding"""
-    data = data.replace('-', '+').replace('_', '/')
-    missing_padding = len(data) % 4
-    if missing_padding:
-        data += '=' * (4 - missing_padding)
+    """鲁棒性强的 Base64 解码"""
     try:
+        data = data.strip().replace('-', '+').replace('_', '/')
+        while len(data) % 4 != 0: data += '='
         return base64.b64decode(data).decode('utf-8', errors='ignore')
+    except: return ""
+
+def test_tcp_connectivity(host, port, timeout=2):
+    """测试 TCP 连通性，增加域名解析异常处理"""
+    try:
+        # 显式解析 IP，避免某些 DNS 污染导致脚本卡死
+        target_ip = socket.gethostbyname(host)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        start = time.time()
+        result = sock.connect_ex((target_ip, int(port)))
+        delay = int((time.time() - start) * 1000)
+        sock.close()
+        return delay if result == 0 else None
     except:
-        return ""
+        return None
 
 def process():
-    final_nodes = []
-    sub_links = get_sub_links()
-    
-    for link in sub_links:
-        try:
-            print(f"正在获取: {link[:30]}...")
-            raw_content = requests.get(link, timeout=15).text.strip()
-            
-            # 自动识别是否为 Base64 加密的订阅内容
-            if not raw_content.startswith(('vmess://', 'ss://', 'vless://', 'trojan://')):
-                decoded_content = safe_base64_decode(raw_content)
-            else:
-                decoded_content = raw_content
+    nodes_pool = []
+    sub_links = os.environ.get('SUB_LINKS', '').split('\n')
+    seen_ips = set() # 去重，防止同一个服务器重复出现
 
-            lines = decoded_content.splitlines()
-            for line in lines:
+    for link in [l.strip() for l in sub_links if l.strip()]:
+        try:
+            print(f"📡 抓取源: {link[:40]}...")
+            response = requests.get(link, timeout=15).text
+            
+            # 自动识别订阅格式：Base64 还是 明文
+            content = safe_base64_decode(response) if "://" not in response[:20] else response
+            
+            for line in content.splitlines():
                 line = line.strip()
-                if not line: continue
+                if "://" not in line: continue
                 
-                # 提取节点名称进行区域过滤
-                node_name = ""
-                addr, port = "", ""
-                
+                # 协议解析：获取核心三要素 (地址, 端口, 备注)
+                addr, port, name = "", 0, ""
                 if line.startswith('vmess://'):
                     try:
-                        v_config = json.loads(safe_base64_decode(line[8:]))
-                        node_name = v_config.get('ps', '')
-                        addr, port = v_config.get('add'), v_config.get('port')
+                        cfg = json.loads(safe_base64_decode(line[8:]))
+                        addr, port, name = cfg.get('add'), cfg.get('port'), cfg.get('ps', '')
                     except: continue
                 else:
-                    parsed = urlparse(line)
-                    node_name = unquote(parsed.fragment)
-                    addr, port = parsed.hostname, parsed.port
-
-                # 核心筛选逻辑
-                if addr and port and any(k.upper() in node_name.upper() for k in ASIA_KEYWORDS):
-                    # 只有 TCP 连通的才加入列表
-                    start_time = time.time()
-                    if test_tcp(addr, port):
-                        latency = int((time.time() - start_time) * 1000)
-                        final_nodes.append({"raw": line, "latency": latency})
-                        print(f"✅ 发现可用亚洲节点: {node_name} ({latency}ms)")
+                    p = urlparse(line)
+                    addr, port, name = p.hostname, p.port, unquote(p.fragment)
+                
+                # 核心筛选：必须是亚洲关键词，且 IP 唯一
+                if addr and port and any(k.upper() in name.upper() for k in ASIA_KEYWORDS):
+                    if addr in seen_ips: continue
+                    
+                    delay = test_tcp_connectivity(addr, port)
+                    if delay:
+                        seen_ips.add(addr)
+                        nodes_pool.append({"raw": line, "delay": delay, "name": name})
+                        print(f"✅ 捕获亚洲节点: [{delay}ms] {name}")
+                        
         except Exception as e:
-            print(f"解析出错: {e}")
+            print(f"❌ 订阅解析失败: {e}")
 
-    # 排序并保存
-    final_nodes.sort(key=lambda x: x['latency'])
+    # 排序：按延迟从小到大
+    nodes_pool.sort(key=lambda x: x['delay'])
+    
+    # 输出结果：只保留前 30 个最精良的
     with open('top_asia_nodes.txt', 'w', encoding='utf-8') as f:
-        for node in final_nodes[:30]:
-            f.write(f"{node['raw']}\n")
+        for n in nodes_pool[:30]:
+            f.write(f"{n['raw']}\n")
+    
+    print(f"\n🎉 筛选完成！当前可用亚洲节点总数: {len(nodes_pool)}")
 
 if __name__ == "__main__":
     process()
