@@ -5,6 +5,7 @@ import time
 import os
 import re
 import json
+from urllib.parse import urlparse, unquote
 
 # 亚洲常用节点关键词
 ASIA_KEYWORDS = ['HK', 'HongKong', '香港', 'JP', 'Japan', '日本', 'SG', 'Singapore', '新加坡', 'KR', 'Korea', '韩国', 'TW', 'Taiwan', '台湾']
@@ -13,31 +14,39 @@ def get_sub_links():
     links = os.environ.get('SUB_LINKS', '')
     return [l.strip() for l in links.split('\n') if l.strip()]
 
-def test_latency(ip, port, timeout=3):
-    """真正的 TCP 延迟测试"""
+def test_latency(ip, port, timeout=2):
+    """测试 TCP 握手延迟"""
     start = time.time()
     try:
-        # 尝试建立 TCP 连接
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(timeout)
         sock.connect((ip, int(port)))
         sock.close()
         return int((time.time() - start) * 1000)
     except:
-        return None # 连接失败返回 None
+        return None
 
-def parse_vmess(vmess_str):
-    """解析 vmess:// 链接获取 IP 和端口"""
+def parse_node(line):
+    """通用解析逻辑：提取 IP, 端口和备注名称"""
     try:
-        data = vmess_str.replace('vmess://', '')
-        # 处理 padding
-        missing_padding = len(data) % 4
-        if missing_padding:
-            data += '=' * (4 - missing_padding)
-        config = json.loads(base64.b64decode(data).decode('utf-8'))
-        return config.get('add'), config.get('port'), config.get('ps')
+        if line.startswith('vmess://'):
+            data = line.replace('vmess://', '')
+            missing_padding = len(data) % 4
+            if missing_padding: data += '=' * (4 - missing_padding)
+            config = json.loads(base64.b64decode(data).decode('utf-8'))
+            return config.get('add'), config.get('port'), config.get('ps')
+        
+        elif line.startswith(('ss://', 'trojan://', 'vless://', 'ssr://')):
+            # 使用 URL 解析库处理通用格式
+            parsed = urlparse(line)
+            addr = parsed.hostname
+            port = parsed.port
+            # 备注通常在 # 后面
+            name = unquote(parsed.fragment) if parsed.fragment else "Unknown"
+            return addr, port, name
     except:
-        return None, None, None
+        pass
+    return None, None, None
 
 def process():
     valid_nodes = []
@@ -45,25 +54,34 @@ def process():
     
     for link in sub_links:
         try:
-            res = requests.get(link, timeout=10).text
-            missing_padding = len(res) % 4
-            if missing_padding: res += '=' * (4 - missing_padding)
-            decoded_data = base64.b64decode(res).decode('utf-8')
+            print(f"正在抓取订阅: {link[:20]}...")
+            res = requests.get(link, timeout=15).text
+            # 处理可能的 Base64 订阅内容
+            try:
+                missing_padding = len(res) % 4
+                if missing_padding: res += '=' * (4 - missing_padding)
+                content = base64.b64decode(res).decode('utf-8')
+            except:
+                content = res # 如果不是 base64，尝试直接解析文本
             
-            for line in decoded_data.split('\n'):
-                if not line.startswith('vmess://'): continue # 目前先处理 vmess
+            lines = content.split('\n')
+            for line in lines:
+                line = line.strip()
+                if not line: continue
                 
-                addr, port, name = parse_vmess(line)
-                if addr and any(k in name for k in ASIA_KEYWORDS):
-                    print(f"正在测试: {name}...")
+                addr, port, name = parse_node(line)
+                
+                # 筛选条件：1. 成功解析 2. 包含亚洲关键字
+                if addr and port and any(k.upper() in name.upper() for k in ASIA_KEYWORDS):
                     delay = test_latency(addr, port)
                     if delay is not None:
                         valid_nodes.append({"raw": line, "latency": delay, "name": name})
+                        print(f"有效节点: [{delay}ms] {name}")
                         
         except Exception as e:
-            print(f"解析出错: {e}")
+            print(f"处理订阅出错: {e}")
 
-    # 按延迟从小到大排序，取前 30
+    # 排序：延迟越低越靠前
     valid_nodes.sort(key=lambda x: x['latency'])
     top_30 = valid_nodes[:30]
     
@@ -71,7 +89,7 @@ def process():
         for node in top_30:
             f.write(f"{node['raw']}\n")
     
-    print(f"完成！筛选出 {len(top_30)} 个可用亚洲节点。")
+    print(f"\n✅ 任务完成！已从大量节点中精选出 {len(top_30)} 个最快亚洲节点。")
 
 if __name__ == "__main__":
     process()
