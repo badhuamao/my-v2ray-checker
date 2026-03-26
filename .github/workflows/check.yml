@@ -2,15 +2,13 @@ name: Daily Node Check
 
 on:
   schedule:
-    # 定时任务：每 6 小时运行一次 (北京时间 02:00, 08:00, 14:00, 20:00)
+    # 每 6 小时自动运行一次
     - cron: '0 */6 * * *'
-  workflow_dispatch: # 允许你在 GitHub 页面上手动点击 "Run workflow"
+  workflow_dispatch: # 允许手动点击运行
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    
-    # 给予 Action 写入权限，否则无法推送生成的 txt 文件
     permissions:
       contents: write
 
@@ -25,11 +23,9 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
           pip install requests
 
       - name: Run Node Checker
-        # 脚本现在直接读取同目录下的 urls.txt，无需环境变量
         run: python main.py
 
       - name: Commit and Push Results
@@ -37,5 +33,5 @@ jobs:
           git config --global user.name "GitHub Action"
           git config --global user.email "action@github.com"
           git add top_asia_nodes.txt
-          # 如果文件没有变化，git commit 会报错，这里加个判断防止 workflow 失败
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Update top 30 nodes" && git push)
+          # 检查是否有变化，有变化才提交
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update nodes: $(date)" && git push)
