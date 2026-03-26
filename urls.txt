@@ -1,1 +1,8 @@
-https://peige.dpkj.qzz.io/dapei
+# 1. 自动聚合池 (每小时更新，Hy2 占比极高)
+https://raw.githubusercontent.com/vless-node/vless/main/sub/sub_merge.txt
+
+# 2. 暴力美学源 (专注于高速协议如 Hy2/Reality)
+https://raw.githubusercontent.com/toshifumi001/v2ray-free/main/v2ray
+
+# 3. 实时抓取 (节点极多，基数大，更容易筛出活着的)
+https://raw.githubusercontent.com/freefq/free/master/v2ray
