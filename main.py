@@ -3,93 +3,89 @@ import requests
 import socket
 import time
 import os
-import re
 import json
 from urllib.parse import urlparse, unquote
 
-# 亚洲常用节点关键词
-ASIA_KEYWORDS = ['HK', 'HongKong', '香港', 'JP', 'Japan', '日本', 'SG', 'Singapore', '新加坡', 'KR', 'Korea', '韩国', 'TW', 'Taiwan', '台湾']
+# 更加严格的亚洲关键字（避免匹配到包含这些字母的随机字符串）
+ASIA_KEYWORDS = ['香港', 'HK', 'HONGKONG', '日本', 'JP', 'JAPAN', '新加坡', 'SG', 'SINGAPORE', '韩国', 'KR', 'KOREA', '台湾', 'TW', 'TAIWAN']
 
 def get_sub_links():
     links = os.environ.get('SUB_LINKS', '')
     return [l.strip() for l in links.split('\n') if l.strip()]
 
-def test_latency(ip, port, timeout=2):
-    """测试 TCP 握手延迟"""
-    start = time.time()
+def test_tcp(ip, port, timeout=1.5):
+    """快速过滤不可连接的 IP"""
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(timeout)
-        sock.connect((ip, int(port)))
+        result = sock.connect_ex((ip, int(port)))
         sock.close()
-        return int((time.time() - start) * 1000)
+        return result == 0
     except:
-        return None
+        return False
 
-def parse_node(line):
-    """通用解析逻辑：提取 IP, 端口和备注名称"""
+def safe_base64_decode(data):
+    """通用的 Base64 解码，处理各种不规范的 padding"""
+    data = data.replace('-', '+').replace('_', '/')
+    missing_padding = len(data) % 4
+    if missing_padding:
+        data += '=' * (4 - missing_padding)
     try:
-        if line.startswith('vmess://'):
-            data = line.replace('vmess://', '')
-            missing_padding = len(data) % 4
-            if missing_padding: data += '=' * (4 - missing_padding)
-            config = json.loads(base64.b64decode(data).decode('utf-8'))
-            return config.get('add'), config.get('port'), config.get('ps')
-        
-        elif line.startswith(('ss://', 'trojan://', 'vless://', 'ssr://')):
-            # 使用 URL 解析库处理通用格式
-            parsed = urlparse(line)
-            addr = parsed.hostname
-            port = parsed.port
-            # 备注通常在 # 后面
-            name = unquote(parsed.fragment) if parsed.fragment else "Unknown"
-            return addr, port, name
+        return base64.b64decode(data).decode('utf-8', errors='ignore')
     except:
-        pass
-    return None, None, None
+        return ""
 
 def process():
-    valid_nodes = []
+    final_nodes = []
     sub_links = get_sub_links()
     
     for link in sub_links:
         try:
-            print(f"正在抓取订阅: {link[:20]}...")
-            res = requests.get(link, timeout=15).text
-            # 处理可能的 Base64 订阅内容
-            try:
-                missing_padding = len(res) % 4
-                if missing_padding: res += '=' * (4 - missing_padding)
-                content = base64.b64decode(res).decode('utf-8')
-            except:
-                content = res # 如果不是 base64，尝试直接解析文本
+            print(f"正在获取: {link[:30]}...")
+            raw_content = requests.get(link, timeout=15).text.strip()
             
-            lines = content.split('\n')
+            # 自动识别是否为 Base64 加密的订阅内容
+            if not raw_content.startswith(('vmess://', 'ss://', 'vless://', 'trojan://')):
+                decoded_content = safe_base64_decode(raw_content)
+            else:
+                decoded_content = raw_content
+
+            lines = decoded_content.splitlines()
             for line in lines:
                 line = line.strip()
                 if not line: continue
                 
-                addr, port, name = parse_node(line)
+                # 提取节点名称进行区域过滤
+                node_name = ""
+                addr, port = "", ""
                 
-                # 筛选条件：1. 成功解析 2. 包含亚洲关键字
-                if addr and port and any(k.upper() in name.upper() for k in ASIA_KEYWORDS):
-                    delay = test_latency(addr, port)
-                    if delay is not None:
-                        valid_nodes.append({"raw": line, "latency": delay, "name": name})
-                        print(f"有效节点: [{delay}ms] {name}")
-                        
-        except Exception as e:
-            print(f"处理订阅出错: {e}")
+                if line.startswith('vmess://'):
+                    try:
+                        v_config = json.loads(safe_base64_decode(line[8:]))
+                        node_name = v_config.get('ps', '')
+                        addr, port = v_config.get('add'), v_config.get('port')
+                    except: continue
+                else:
+                    parsed = urlparse(line)
+                    node_name = unquote(parsed.fragment)
+                    addr, port = parsed.hostname, parsed.port
 
-    # 排序：延迟越低越靠前
-    valid_nodes.sort(key=lambda x: x['latency'])
-    top_30 = valid_nodes[:30]
-    
+                # 核心筛选逻辑
+                if addr and port and any(k.upper() in node_name.upper() for k in ASIA_KEYWORDS):
+                    # 只有 TCP 连通的才加入列表
+                    start_time = time.time()
+                    if test_tcp(addr, port):
+                        latency = int((time.time() - start_time) * 1000)
+                        final_nodes.append({"raw": line, "latency": latency})
+                        print(f"✅ 发现可用亚洲节点: {node_name} ({latency}ms)")
+        except Exception as e:
+            print(f"解析出错: {e}")
+
+    # 排序并保存
+    final_nodes.sort(key=lambda x: x['latency'])
     with open('top_asia_nodes.txt', 'w', encoding='utf-8') as f:
-        for node in top_30:
+        for node in final_nodes[:30]:
             f.write(f"{node['raw']}\n")
-    
-    print(f"\n✅ 任务完成！已从大量节点中精选出 {len(top_30)} 个最快亚洲节点。")
 
 if __name__ == "__main__":
     process()
