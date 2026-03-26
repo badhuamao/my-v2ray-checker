@@ -1,11 +1,6 @@
-import base64
-import requests
-import socket
-import time
-import os
-import json
-import re
+import base64, requests, socket, time, os, json, re
 from urllib.parse import urlparse, unquote
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # 地区映射表
 REGION_MAP = {
@@ -31,59 +26,51 @@ def safe_base64_decode(data):
         return base64.b64decode(data).decode('utf-8', errors='ignore')
     except: return ""
 
-def test_tcp_connectivity(host, port, timeout=3):
+def test_tcp_connectivity(node):
+    """单节点测速函数，供多线程调用"""
     try:
+        host, port = node['addr'], node['port']
         target_ip = socket.gethostbyname(host)
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(timeout)
+        sock.settimeout(3.5)
         start = time.time()
         result = sock.connect_ex((target_ip, int(port)))
         delay = int((time.time() - start) * 1000)
         sock.close()
-        return delay if result == 0 else None
-    except: return None
+        if result == 0:
+            node['delay'] = delay
+            return node
+    except: pass
+    return None
 
 def process():
-    nodes_pool = []
-    if not os.path.exists('urls.txt'): 
-        print("❌ 未找到 urls.txt")
-        return
-        
+    all_raw_nodes = []
+    if not os.path.exists('urls.txt'): return
     with open('urls.txt', 'r', encoding='utf-8') as f:
         sub_links = [l.strip() for l in f if l.strip() and not l.startswith('#')]
     
     seen_ips = set()
 
+    # 1. 抓取与初步解析
     for link in sub_links:
         try:
-            # --- 自动救活 404 逻辑 ---
             targets = [link]
             if "raw.githubusercontent.com" in link:
-                # 尝试两个不同的 GitHub 镜像源
                 targets.append(link.replace("raw.githubusercontent.com", "raw.kkgithub.com"))
                 targets.append(f"https://ghproxy.net/{link}")
 
             response_text = ""
             for t in targets:
-                print(f"📡 尝试抓取: {t[:60]}...")
                 try:
                     r = requests.get(t, headers={'User-Agent': 'v2rayN/6.23'}, timeout=12)
                     if r.status_code == 200:
-                        response_text = r.text
-                        print(f"✅ 成功! (源: {t[:25]}...)")
-                        break
-                    else:
-                        print(f"⚠️ 返回状态码: {r.status_code}")
+                        response_text = r.text; break
                 except: continue
             
-            if not response_text:
-                print(f"❌ 该订阅源所有镜像均失效，跳过。")
-                continue
+            if not response_text: continue
 
             content = safe_base64_decode(response_text) if "://" not in response_text[:20] else response_text
-            lines = content.splitlines()
-
-            for line in lines:
+            for line in content.splitlines():
                 line = line.strip()
                 if "://" not in line: continue
                 
@@ -98,46 +85,46 @@ def process():
                         p = urlparse(line)
                         addr, port = p.hostname, p.port
                         raw_name = unquote(p.fragment) if p.fragment else "Node"
-                        if line.startswith(('hy', 'hysteria2')): is_hy2 = True
+                        is_hy2 = line.startswith(('hy', 'hysteria2'))
                     except: continue
                 
                 if addr and port and addr not in seen_ips:
-                    delay = test_tcp_connectivity(addr, port)
-                    if delay:
-                        seen_ips.add(addr)
-                        region = get_region_name(raw_name)
-                        # 加上 Hy2 标识
-                        display_reg = f"⚡{region}" if is_hy2 else region
-                        nodes_pool.append({"raw": line, "delay": delay, "region": display_reg})
-                        print(f"   [+] {display_reg} ({delay}ms)")
-        except Exception as e:
-            print(f"❌ 运行异常: {e}")
+                    seen_ips.add(addr)
+                    all_raw_nodes.append({'raw': line, 'addr': addr, 'port': port, 'name': raw_name, 'is_hy2': is_hy2})
+        except: continue
 
-    # 按延迟排序并重命名
-    nodes_pool.sort(key=lambda x: x['delay'])
-    
+    # 2. 多线程测速 (10线程)
+    print(f"🚀 开始并发测速，共 {len(all_raw_nodes)} 个待测节点...")
+    valid_nodes = []
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = [executor.submit(test_tcp_connectivity, n) for n in all_raw_nodes]
+        for future in as_completed(futures):
+            res = future.result()
+            if res:
+                valid_nodes.append(res)
+                print(f" ✅ {res['name'][:15]}... 通了!")
+
+    # 3. 排序与重命名写入
+    valid_nodes.sort(key=lambda x: x['delay'])
     with open('top_asia_nodes.txt', 'w', encoding='utf-8') as f:
-        f.write(f"# 聚合列表 | 有效数: {len(nodes_pool)} | 更新: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"# 聚合 | 有效: {len(valid_nodes)} | 更新: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
         region_counter = {}
-        for n in nodes_pool[:50]:
-            reg = n['region']
-            region_counter[reg] = region_counter.get(reg, 0) + 1
-            # 核心修改：地区名 + 狗熊 + 编号
-            new_name = f"[{reg}狗熊] {region_counter[reg]:02d}"
+        for n in valid_nodes[:50]:
+            reg = get_region_name(n['name'])
+            display_reg = f"⚡{reg}" if n['is_hy2'] else reg
+            region_counter[display_reg] = region_counter.get(display_reg, 0) + 1
+            new_name = f"[{display_reg}狗熊] {region_counter[display_reg]:02d}"
             
-            final_link = n['raw']
-            if final_link.startswith('vmess://'):
+            raw = n['raw']
+            if raw.startswith('vmess://'):
                 try:
-                    cfg = json.loads(safe_base64_decode(final_link[8:]))
-                    cfg['ps'] = new_name
-                    final_link = "vmess://" + base64.b64encode(json.dumps(cfg).encode('utf-8')).decode('utf-8')
+                    cfg = json.loads(safe_base64_decode(raw[8:])); cfg['ps'] = new_name
+                    raw = "vmess://" + base64.b64encode(json.dumps(cfg).encode('utf-8')).decode('utf-8')
                 except: pass
             else:
-                base_url = final_link.split('#')[0]
-                final_link = f"{base_url}#{new_name}"
-            f.write(f"{final_link}\n")
-    
-    print(f"\n🎉 整理完成！抓到 {len(nodes_pool)} 个有效节点，已保存至 top_asia_nodes.txt")
+                raw = f"{raw.split('#')[0]}#{new_name}"
+            f.write(f"{raw}\n")
+    print(f"🎉 任务完成，筛选出 {len(valid_nodes)} 个狗熊节点！")
 
 if __name__ == "__main__":
     process()
