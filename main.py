@@ -1,161 +1,116 @@
-import base64
-import requests
-import socket
-import time
-import os
-import json
-import re
+import base64, requests, socket, time, os, json, re, zlib
 from urllib.parse import urlparse, unquote
 
-# 地区识别映射表
 REGION_MAP = {
-    '香港': ['HK', 'HONGKONG', '香港', 'HKG', '廣港', '深港'],
-    '日本': ['JP', 'JAPAN', '日本', 'TOKYO', 'OSAKA', '東京', '大阪'],
-    '台湾': ['TW', 'TAIWAN', '台湾', 'ROC', '台北', '新北'],
-    '新加坡': ['SG', 'SINGAPORE', '新加坡', '獅城'],
-    '美国': ['US', 'USA', '美国', 'UNITED STATES', 'LA', 'NY', '圣何塞', '西雅图'],
-    '韩国': ['KR', 'KOREA', '韩国', 'SEOUL', '首尔'],
-    '德国': ['DE', 'GERMANY', '德国', 'FRANKFURT'],
-    '英国': ['UK', 'UNITED KINGDOM', '英国', 'LONDON'],
+    '香港': ['HK', 'HONGKONG', '香港', 'HKG', '廣港'],
+    '日本': ['JP', 'JAPAN', '日本', 'TOKYO', 'OSAKA'],
+    '台湾': ['TW', 'TAIWAN', '台湾', 'ROC'],
+    '新加坡': ['SG', 'SINGAPORE', '新加坡'],
+    '美国': ['US', 'USA', '美国', 'STATES', 'LA', 'NY'],
+    '韩国': ['KR', 'KOREA', '韩国', 'SEOUL'],
 }
 
-def safe_base64_decode(data):
-    """鲁棒性强的 Base64 解码，兼容多种订阅格式"""
+def safe_decode(data):
+    """多级解码尝试，兼容 Gzip 和 Base64"""
+    if not data: return ""
+    # 尝试处理可能的压缩数据
+    try: data = zlib.decompress(data, 16+zlib.MAX_WBITS).decode('utf-8')
+    except: pass
+    
+    # 尝试 Base64 解码
     try:
-        data = data.strip().replace('-', '+').replace('_', '/')
-        # 移除所有换行符和空格
-        data = "".join(data.split())
-        # 自动补全填充符
-        missing_padding = len(data) % 4
-        if missing_padding:
-            data += '=' * (4 - missing_padding)
-        return base64.b64decode(data).decode('utf-8', errors='ignore')
-    except:
-        return ""
+        clean_data = "".join(data.split())
+        missing_padding = len(clean_data) % 4
+        if missing_padding: clean_data += '=' * (4 - missing_padding)
+        decoded = base64.b64decode(clean_data).decode('utf-8', errors='ignore')
+        if "://" in decoded: return decoded
+    except: pass
+    return data
 
-def get_region_name(raw_name):
-    """根据节点备注识别地区"""
-    upper_name = raw_name.upper()
-    for region, keywords in REGION_MAP.items():
-        if any(k.upper() in upper_name for k in keywords):
-            return region
-    return "其他"
-
-def test_connectivity(host, port, timeout=2.5):
-    """双轮 TCP 握手测试，确保节点真实在线"""
+def test_conn(host, port):
     try:
-        target_ip = socket.gethostbyname(host)
-        for _ in range(2):
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(timeout)
-            start = time.time()
-            result = sock.connect_ex((target_ip, int(port)))
-            sock.close()
-            if result != 0:
-                return None
-            time.sleep(0.05)
-        return int((time.time() - start) * 1000)
-    except:
-        return None
+        ip = socket.gethostbyname(host)
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(2.0)
+        start = time.time()
+        res = s.connect_ex((ip, int(port)))
+        s.close()
+        return int((time.time() - start) * 1000) if res == 0 else None
+    except: return None
 
 def process():
     nodes_pool = []
     seen_ips = set()
-    file_path = 'urls.txt'
+    if not os.path.exists('urls.txt'): return
     
-    if not os.path.exists(file_path):
-        print("❌ 错误: 找不到 urls.txt 文件")
-        return
+    with open('urls.txt', 'r', encoding='utf-8') as f:
+        urls = [l.strip() for l in f if l.strip() and not l.startswith('#')]
 
-    with open(file_path, 'r', encoding='utf-8') as f:
-        sub_links = [l.strip() for l in f if l.strip() and not l.startswith('#')]
-
-    for link in sub_links:
+    for url in urls:
         try:
-            print(f"📡 正在拉取源: {link[:50]}...")
-            headers = {'User-Agent': 'v2rayN/6.23'}
-            response = requests.get(link, headers=headers, timeout=15).text
+            print(f"📡 抓取: {url[:40]}...")
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept-Encoding': 'gzip, deflate'
+            }
+            resp = requests.get(url, headers=headers, timeout=15)
+            raw_text = safe_decode(resp.content if isinstance(resp.content, bytes) else resp.text)
             
-            # 自动判断是否需要 Base64 解码
-            if "://" not in response[:20]:
-                content = safe_base64_decode(response)
-            else:
-                content = response
+            # 使用正则抓取所有协议链接，防止行解析失败
+            found = re.findall(r'(vmess|vless|ss|ssr|trojan|hysteria2|hy2)://[^\s\'"]+', raw_text)
+            print(f"📊 发现 {len(found)} 个潜在节点")
 
-            lines = content.splitlines()
-            print(f"📄 解析到 {len(lines)} 行原始数据")
-
-            for line in lines:
-                line = line.strip()
-                if "://" not in line: continue
+            for link in found:
+                # 补全协议头进行解析
+                full_link = link if "://" in link else "" # 正则已带协议头
+                addr, port, name, is_hy2 = "", 0, "未知", False
                 
-                addr, port, raw_name, is_hy2 = "", 0, "", False
-                
-                # 协议解析
-                if line.startswith('vmess://'):
+                if link.startswith('vmess://'):
                     try:
-                        cfg = json.loads(safe_base64_decode(line[8:]))
-                        addr, port, raw_name = cfg.get('add'), cfg.get('port'), cfg.get('ps', '')
-                    except: continue
-                elif line.startswith(('hysteria2://', 'hy2://')):
-                    try:
-                        p = urlparse(line)
-                        addr, port, raw_name = p.hostname, p.port, unquote(p.fragment)
-                        is_hy2 = True
+                        cfg = json.loads(safe_decode(link[8:]))
+                        addr, port, name = cfg.get('add'), cfg.get('port'), cfg.get('ps', '')
                     except: continue
                 else:
                     try:
-                        p = urlparse(line)
-                        addr, port, raw_name = p.hostname, p.port, unquote(p.fragment)
+                        p = urlparse(link)
+                        addr, port, name = p.hostname, p.port, unquote(p.fragment) if p.fragment else "Node"
+                        if link.startswith(('hy', 'hysteria2')): is_hy2 = True
                     except: continue
                 
-                # 过滤并测试
                 if addr and port and addr not in seen_ips:
-                    delay = test_connectivity(addr, port)
-                    if delay and delay < 2500:
+                    delay = test_conn(addr, port)
+                    if delay:
                         seen_ips.add(addr)
-                        region = get_region_name(raw_name)
-                        # 为 Hy2 节点增加特殊标识
-                        display_region = f"⚡{region}" if is_hy2 else region
-                        nodes_pool.append({
-                            "raw": line, 
-                            "delay": delay, 
-                            "region": display_region,
-                            "is_hy2": is_hy2
-                        })
-                        print(f"✅ 有效: [{delay}ms] {display_region}")
+                        reg = "其他"
+                        for r, keys in REGION_MAP.items():
+                            if any(k in name.upper() for k in keys): reg = r; break
                         
+                        tag = f"⚡{reg}" if is_hy2 else reg
+                        nodes_pool.append({"raw": link, "delay": delay, "tag": tag})
+                        print(f"✅ [{delay}ms] {tag}")
         except Exception as e:
-            print(f"⚠️ 跳过源 {link[:30]}: {e}")
+            print(f"⚠️ 失败: {e}")
 
-    # 按延迟排序
     nodes_pool.sort(key=lambda x: x['delay'])
-    
-    # 写入结果并重命名
-    region_counter = {}
     with open('top_asia_nodes.txt', 'w', encoding='utf-8') as f:
-        f.write(f"# 聚合订阅 | 更新: {time.strftime('%Y-%m-%d %H:%M:%S')} | 总数: {len(nodes_pool)}\n")
-        
+        f.write(f"# 纯净聚合 | 更新: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+        cnt = {}
         for n in nodes_pool[:50]:
-            reg = n['region']
-            region_counter[reg] = region_counter.get(reg, 0) + 1
-            new_name = f"{reg} {region_counter[reg]:02d}"
-            
-            final_link = n['raw']
-            if final_link.startswith('vmess://'):
+            tag = n['tag']
+            cnt[tag] = cnt.get(tag, 0) + 1
+            new_ps = f"{tag} {cnt[tag]:02d}"
+            # 备注重写
+            raw = n['raw']
+            if raw.startswith('vmess://'):
                 try:
-                    cfg = json.loads(safe_base64_decode(final_link[8:]))
-                    cfg['ps'] = new_name
-                    final_link = "vmess://" + base64.b64encode(json.dumps(cfg).encode('utf-8')).decode('utf-8')
+                    c = json.loads(safe_decode(raw[8:]))
+                    c['ps'] = new_ps
+                    raw = "vmess://" + base64.b64encode(json.dumps(c).encode()).decode()
                 except: pass
             else:
-                # 处理带 # 的备注部分
-                base_part = final_link.split('#')[0]
-                final_link = f"{base_part}#{new_name}"
-            
-            f.write(f"{final_link}\n")
-    
-    print(f"\n🎉 处理完成！已保存 {len(nodes_pool[:50])} 个最速节点。")
+                raw = f"{raw.split('#')[0]}#{new_ps}"
+            f.write(f"{raw}\n")
+    print(f"🎉 完成！共筛选出 {len(nodes_pool[:50])} 个节点")
 
 if __name__ == "__main__":
     process()
