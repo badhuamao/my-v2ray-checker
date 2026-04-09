@@ -1,42 +1,36 @@
 name: Bear Node Auto Fetch
 
-# 触发条件
 on:
   schedule:
-    # 定时触发：每 6 小时运行一次 (北京时间 02:00, 08:00, 14:00, 20:00)
     - cron: '0 */6 * * *'
-  workflow_dispatch: # 保留手动触发按钮，方便您随时点一下运行
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. 检出仓库代码
       - name: Checkout Repository
         uses: actions/checkout@v3
 
-      # 2. 安装 Python 环境
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
 
-      # 3. 安装必要的依赖库
-      - name: Install Dependencies
+      - name: Install Dependencies & Sing-box
         run: |
           python -m pip install --upgrade pip
           pip install requests
+          # 预装 sing-box，为后续深层探测做准备
+          sudo bash <(curl -L https://raw.githubusercontent.com/SagerNet/sing-box/main/install.sh)
 
-      # 4. 执行多线程多功能脚本
       - name: Run Multi-threaded Bear Script
         run: python main.py
 
-      # 5. 将生成的节点文件提交并推送到仓库
       - name: Commit and Push Results
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add top_asia_nodes.txt
-          # 如果文件没有变化，就不提交，防止报错
-          git diff --quiet && git diff --staged --quiet || (git commit -m "🐻 狗熊节点自动更新: $(date +'%Y-%m-%d %H:%M:%S')" && git push)
+          git diff --quiet && git diff --staged --quiet || (git commit -m "🐻 狗熊节点自动精筛更新: $(date +'%Y-%m-%d %H:%M:%S')" && git push)
