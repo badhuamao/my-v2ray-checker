@@ -1,53 +1,67 @@
-import requests, re, time
+import requests, re, time, html
 
-# 定义一个保底源，防止 urls.txt 为空
-DEFAULT_SOURCE = "https://fastly.jsdelivr.net/gh/dongchengjie/airport@main/subs/merged/tested_within.yaml"
+# 高手的精品源
+GOLDEN_SOURCE = "https://fastly.jsdelivr.net/gh/dongchengjie/airport@main/subs/merged/tested_within.yaml"
 
-def extract_specific_nodes(text):
-    # 只提取 HY2, TUIC 和 HTTP
-    pattern = r'(?:hysteria2|hy2|tuic|http)://[a-zA-Z0-9$_.+!*\'(),;?:@&=%/-]+(?:#[^\s"\'<>]+)?'
-    return re.findall(pattern, text)
+def clean_node_link(raw_str):
+    """
+    深度清洗：去掉引号、修复转义字符
+    """
+    # 1. 修复 HTML 转义（比如 &amp; 变回 &）
+    text = html.unescape(raw_str)
+    # 2. 提取真正的链接部分（匹配到空格、引号或末尾为止）
+    match = re.search(r'(?P<link>(?:hy2|hysteria2|tuic|http)://[^\s\'"]+)', text)
+    if match:
+        return match.group('link')
+    return None
 
 def process():
-    print(f"🐻 狗熊工厂 4.6 | 正在从 urls.txt 读取原材料...")
+    print(f"🐻 狗熊工厂 4.9 | 正在修复正则，强攻 YAML 源...")
+    final_nodes = []
     
-    # 1. 加载源列表
-    target_urls = []
+    # 1. 读取 urls.txt (保持第一优先级)
     try:
         with open('urls.txt', 'r', encoding='utf-8') as f:
-            target_urls = [line.strip() for line in f if line.strip() and not line.startswith('#')]
-    except FileNotFoundError:
-        print("⚠️ urls.txt 不存在，将使用保底成品源")
-        target_urls = [DEFAULT_SOURCE]
+            my_urls = [line.strip() for line in f if line.strip() and not line.startswith('#')]
+            for url in my_urls:
+                try:
+                    r = requests.get(url, timeout=10)
+                    if r.status_code == 200:
+                        # 在私人源里找目标协议
+                        lines = r.text.split('\n')
+                        for line in lines:
+                            link = clean_node_link(line)
+                            if link: final_nodes.append(link)
+                except: continue
+    except FileNotFoundError: pass
 
-    if not target_urls:
-        target_urls = [DEFAULT_SOURCE]
+    # 2. 核心修正：如果私人源不够，去高手库里用“宽口径”抓取
+    print(f"📡 正在从高手库提取 HY2/TUIC/HTTP...")
+    try:
+        r = requests.get(GOLDEN_SOURCE, timeout=20)
+        if r.status_code == 200:
+            # 不再用全局正则，而是逐行扫描，确保不漏掉 YAML 里的任何一个
+            lines = r.text.split('\n')
+            for line in lines:
+                # 只要行里包含目标协议关键字
+                if any(p in line.lower() for p in ['hy2', 'hysteria2', 'tuic', 'http://']):
+                    link = clean_node_link(line)
+                    if link: final_nodes.append(link)
+    except Exception as e:
+        print(f"❌ 抓取高手库失败: {e}")
 
-    # 2. 批量吞噬节点
-    all_raw_nodes = []
-    for url in target_urls:
-        try:
-            print(f"正在读取: {url[:30]}...")
-            r = requests.get(url, timeout=15)
-            if r.status_code == 200:
-                found = extract_specific_nodes(r.text)
-                all_raw_nodes.extend(found)
-        except Exception as e:
-            print(f"❌ 读取失败 {url}: {e}")
-
-    # 3. 去重与精炼
-    unique_nodes = list(dict.fromkeys(all_raw_nodes))
-    print(f"✅ 过滤完成，共获得 {len(unique_nodes)} 个 HY2/TUIC/HTTP 节点")
-
-    # 4. 写入成品
-    with open('top_asia_nodes.txt', 'w', encoding='utf-8') as f:
-        f.write(f"# 狗熊·全能订阅 | 来源数: {len(target_urls)} | 数量: {len(unique_nodes)} | 更新: {time.strftime('%Y-%m-%d %H:%M')}\n")
-        for i, node in enumerate(unique_nodes):
-            clean_link = node.split('#')[0]
-            p_type = "HY2" if "hy" in clean_link else ("TUIC" if "tuic" in clean_link else "HTTP")
-            f.write(f"{clean_link}#🐻{p_type}_{i+1:02d}\n")
+    # 3. 去重与输出
+    final_nodes = list(dict.fromkeys(final_nodes))
     
-    print("🎉 生产完毕！")
+    with open('top_asia_nodes.txt', 'w', encoding='utf-8') as f:
+        f.write(f"# 狗熊·修正版 | 成功提取: {len(final_nodes)} | 更新: {time.strftime('%Y-%m-%d %H:%M')}\n")
+        for i, node in enumerate(final_nodes[:100]):
+            # 移除可能存在的旧备注，统一狗熊标签
+            clean_link = node.split('#')[0]
+            p_tag = "HY2" if "hy" in clean_link else ("TUIC" if "tuic" in clean_link else "HTTP")
+            f.write(f"{clean_link}#🚀狗熊_{p_tag}_{i+1:02d}\n")
+    
+    print(f"🎉 修复完成！共捞出 {len(final_nodes)} 个精品节点。")
 
 if __name__ == "__main__":
     process()
