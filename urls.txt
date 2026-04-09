@@ -1,5 +1,14 @@
-# --- 高手成品源 (已测速) ---
-https://fastly.jsdelivr.net/gh/dongchengjie/airport@main/subs/merged/tested_within.yaml
+https://raw.githubusercontent.com/Argh73/VpnConfigCollector/refs/heads/main/Splitted-By-Protocol/Hysteria2.txt
+https://raw.githubusercontent.com/Argh73/VpnConfigCollector/refs/heads/main/Splitted-By-Protocol/Tuic.txt
+https://raw.githubusercontent.com/Argh94/V2RayAutoConfig/refs/heads/main/configs/Hysteria2.txt
+https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/refs/heads/main/channels/networks/grpc
+https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/refs/heads/main/channels/networks/http
+https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/refs/heads/main/networks/grpc
+https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/refs/heads/main/networks/http
+https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/refs/heads/main/subscribe/networks/grpc
+https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/refs/heads/main/subscribe/networks/http
+https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/split-by-protocols/hy2.txt
+https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/split-by-protocols/hysteria.txt
+https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/split-by-protocols/hysteria2.txt
+https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/split-by-protocols/tuic.txt
 
-# --- 你以后想加的新源直接写在下面 ---
-# https://example.com/new_sub.txt
