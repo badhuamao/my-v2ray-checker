@@ -1,9 +1,9 @@
-name: 🐻 狗熊工厂 4.5 每日精选
+name: 🐻 狗熊工厂 4.6 每日精选
 
 on:
   schedule:
-    - cron: '0 20 * * *' # 每天北京时间凌晨 4 点运行一次
-  workflow_dispatch:   # 允许随时手动触发
+    - cron: '0 20 * * *' # 北京时间凌晨 4 点
+  workflow_dispatch:
 
 permissions: write-all
 
@@ -27,6 +27,5 @@ jobs:
       - name: Push Results
         uses: EndBug/add-and-commit@v9
         with:
-          add: top_asia_nodes.txt
-          # 模仿你之前的提交格式
-          message: "🐻 狗熊节点自动更新: $(date +'%Y-%m-%d %H:%M')"
+          add: "top_asia_nodes.txt urls.txt"
+          message: "🚀 狗熊精炼完成: $(date +'%Y-%m-%d %H:%M')"
