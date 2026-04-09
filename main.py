@@ -1,70 +1,93 @@
-import requests, re, time, html
+import requests, re, time, html, socket
 
-# 目标协议扩展：HY2, TUIC, HTTP, gRPC
-TARGET_PROTOCOLS = ['hy2', 'hysteria2', 'tuic', 'http://', 'grpc']
-# 高手精品源 (Docker 测速成品)
+# 目标源
 GOLDEN_SOURCE = "https://fastly.jsdelivr.net/gh/dongchengjie/airport@main/subs/merged/tested_within.yaml"
 
+def is_port_open(link):
+    """
+    轻量级探测：检查服务器端口是否开放
+    """
+    try:
+        # 提取域名和端口
+        host_port = re.search(r'@(?P<host>[^:]+):(?P<port>\d+)', link)
+        if not host_port: return True # 无法解析的默认通过，由客户端处理
+        
+        host = host_port.group('host')
+        port = int(host_port.group('port'))
+        
+        with socket.create_connection((host, port), timeout=2):
+            return True
+    except:
+        return False
+
 def clean_node_link(raw_str):
-    """
-    深度清洗：支持解码 HTML 转义，并精准扣取包含 gRPC 在内的多种协议链接
-    """
-    # 1. 修复 HTML 转义（解决 &amp; 导致参数失效的问题）
     text = html.unescape(raw_str)
-    # 2. 增强正则：匹配目标协议开头，直到遇到引号、空格或行尾
-    pattern = r'(?P<link>(?:hy2|hysteria2|tuic|http|grpc)://[^\s\'"]+)'
+    # 扩大侦察范围：捕获所有链接，后面再精准过滤
+    pattern = r'(?P<link>(?:vmess|vless|ss|ssr|trojan|tuic|hy2|hysteria2|http)://[^\s\'"]+)'
     match = re.search(pattern, text, re.IGNORECASE)
     if match:
-        return match.group('link')
+        link = match.group('link')
+        low_link = link.lower()
+        
+        # 核心过滤逻辑：
+        # 1. 明确是 hy2, tuic, http 协议的
+        # 2. 或者链接参数里包含 grpc 关键字的 (这解决了 gRPC 节点消失的问题)
+        if any(p in low_link for p in ['hy2', 'hysteria2', 'tuic', 'http://']) or 'grpc' in low_link:
+            return link
     return None
 
 def process():
-    print(f"🐻 狗熊工厂 5.0 | 目标：HY2/TUIC/HTTP/GRPC...")
-    final_nodes = []
+    print(f"🐻 狗熊工厂 6.0 | 正在执行精兵策略 (上限30个)...")
+    raw_nodes = []
     
-    # 1. 第一优先级：读取你的 urls.txt
+    # 1. 抓取 (私人源+高手源)
+    sources = [GOLDEN_SOURCE]
     try:
         with open('urls.txt', 'r', encoding='utf-8') as f:
             my_urls = [line.strip() for line in f if line.strip() and not line.startswith('#')]
-            for url in my_urls:
-                try:
-                    r = requests.get(url, timeout=10)
-                    if r.status_code == 200:
-                        lines = r.text.split('\n')
-                        for line in lines:
-                            link = clean_node_link(line)
-                            if link: final_nodes.append(link)
-                except: continue
-    except FileNotFoundError: pass
+            sources = my_urls + sources
+    except: pass
 
-    # 2. 智能补足：如果私人源节点不够，调用高手库
-    print(f"📡 正在从储备源搜索新增的 gRPC 及其他目标协议...")
-    try:
-        r = requests.get(GOLDEN_SOURCE, timeout=20)
-        if r.status_code == 200:
-            lines = r.text.split('\n')
-            for line in lines:
-                # 检查行内是否包含任何一个目标协议关键字
-                if any(p in line.lower() for p in TARGET_PROTOCOLS):
+    for url in sources:
+        try:
+            r = requests.get(url, timeout=10)
+            if r.status_code == 200:
+                for line in r.text.split('\n'):
                     link = clean_node_link(line)
-                    if link: final_nodes.append(link)
-    except Exception as e:
-        print(f"❌ 储备源抓取异常: {e}")
+                    if link: raw_nodes.append(link)
+        except: continue
 
-    # 3. 去重与出厂包装
-    final_nodes = list(dict.fromkeys(final_nodes))
-    
+    # 2. 去重
+    unique_nodes = list(dict.fromkeys(raw_nodes))
+    print(f"📡 初步提取到 {len(unique_nodes)} 个潜在节点，开始存活探测...")
+
+    # 3. 核心升级：存活过滤 + 数量封顶
+    final_nodes = []
+    for node in unique_nodes:
+        if len(final_nodes) >= 30: break # 达到30个直接收工
+        
+        if is_port_open(node):
+            final_nodes.append(node)
+            print(f"✅ 节点存活: {len(final_nodes)}/30")
+        else:
+            print(f"❌ 剔除死节点")
+
+    # 4. 写入结果
     with open('top_asia_nodes.txt', 'w', encoding='utf-8') as f:
-        f.write(f"# 狗熊·全能订阅 | 包含: HY2/TUIC/HTTP/GRPC | 数量: {len(final_nodes)} | 更新: {time.strftime('%Y-%m-%d %H:%M')}\n")
-        for i, node in enumerate(final_nodes[:100]):
-            # 统一清理旧备注并打上狗熊标签
+        f.write(f"# 狗熊·精兵版 | 仅存活节点 | 封顶: 30 | 更新: {time.strftime('%Y-%m-%d %H:%M')}\n")
+        for i, node in enumerate(final_nodes):
             clean_link = node.split('#')[0]
-            # 识别协议类型用于命名
             low_link = clean_link.lower()
-            p_tag = "GRPC" if "grpc" in low_link else ("HY2" if "hy" in low_link else ("TUIC" if "tuic" in low_link else "HTTP"))
+            
+            # 协议打标
+            if "grpc" in low_link: p_tag = "GRPC"
+            elif "hy2" in low_link or "hysteria2" in low_link: p_tag = "HY2"
+            elif "tuic" in low_link: p_tag = "TUIC"
+            else: p_tag = "HTTP"
+            
             f.write(f"{clean_link}#🚀狗熊_{p_tag}_{i+1:02d}\n")
     
-    print(f"🎉 任务圆满完成！共获得 {len(final_nodes)} 个全能节点。")
+    print(f"🎉 生产完毕！今日精选 {len(final_nodes)} 个高可用节点。")
 
 if __name__ == "__main__":
     process()
