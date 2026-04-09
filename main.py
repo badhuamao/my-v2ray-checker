@@ -1,9 +1,8 @@
 import requests, re, time, html
 
-GOLDEN_SOURCE = "https://fastly.jsdelivr.net/gh/dongchengjie/airport@main/subs/merged/tested_within.yaml"
-
 def clean_node_link(raw_str):
     text = html.unescape(raw_str)
+    # 核心正则：支持 HY2 端口范围和 gRPC 复杂参数
     pattern = r'(?P<link>(?:vmess|vless|ss|ssr|trojan|tuic|hy2|hysteria2|http)://[^\s\'"]+)'
     match = re.search(pattern, text, re.IGNORECASE)
     if match:
@@ -11,75 +10,59 @@ def clean_node_link(raw_str):
     return None
 
 def get_node_key(link):
-    """提取节点的唯一身份，用于去重"""
-    # 只要 协议+域名+端口 一样，就认为是同一个节点
-    clean_part = link.split('#')[0].split('?')[0]
-    return clean_part
+    """提取唯一特征防止重复"""
+    return link.split('#')[0].split('?')[0]
 
 def process():
-    print(f"🐻 狗熊工厂 7.1 | 私人源优先模式启动...")
+    print(f"🐻 狗熊工厂 8.0 | 纯净私人模式 | 目标 30 强")
+    raw_pool = []
     
-    # 分别存放私人节点和公共节点
-    private_nodes = []
-    public_nodes = []
-    
-    # 1. 首先抓取 urls.txt (你的私人地盘)
+    # 只抓取 urls.txt
     try:
         with open('urls.txt', 'r', encoding='utf-8') as f:
-            my_urls = [line.strip() for line in f if line.strip() and not line.startswith('#')]
-            for url in my_urls:
-                print(f"📥 正在抓取私人源: {url[:30]}...")
+            for url in f:
+                url = url.strip()
+                if not url or url.startswith('#'): continue
                 try:
                     r = requests.get(url, timeout=15)
                     if r.status_code == 200:
                         for line in r.text.split('\n'):
                             link = clean_node_link(line)
-                            if link: private_nodes.append(link)
-                except: continue
+                            if link: raw_pool.append(link)
+                except Exception as e:
+                    print(f"❌ 抓取失败 {url[:20]}: {e}")
     except FileNotFoundError:
-        print("⚠️ 未发现 urls.txt，跳过私人源。")
+        print("⚠️ 找不到 urls.txt，请检查文件是否存在！")
+        return
 
-    # 2. 抓取高手源 (作为备用弹药库)
-    try:
-        r = requests.get(GOLDEN_SOURCE, timeout=20)
-        if r.status_code == 200:
-            for line in r.text.split('\n'):
-                link = clean_node_link(line)
-                if link: public_nodes.append(link)
-    except:
-        print("⚠️ 高手源抓取失败，仅使用私人源。")
-
-    # 3. 智能去重逻辑 (私人源拥有绝对优先权)
+    # 1. 深度去重
     seen_keys = set()
-    final_list = []
-
-    # 先放私人节点
-    for node in private_nodes:
+    unique_nodes = []
+    for node in raw_pool:
         key = get_node_key(node)
         if key not in seen_keys:
             seen_keys.add(key)
-            final_list.append(node)
+            unique_nodes.append(node)
     
-    print(f"✅ 私人唯一节点: {len(final_list)} 个")
+    print(f"📡 私人矿山总量: {len(raw_pool)} | 唯一节点: {len(unique_nodes)}")
 
-    # 再用公共节点填补空位，直到凑够 150 个
-    for node in public_nodes:
-        if len(final_list) >= 150: break
-        key = get_node_key(node)
-        if key not in seen_keys:
-            seen_keys.add(key)
-            final_list.append(node)
+    # 2. 协议排序与严格限额 30 个
+    grpc_nodes = [n for n in unique_nodes if 'grpc' in n.lower()]
+    others = [n for n in unique_nodes if n not in grpc_nodes]
+    
+    # 组合并取前 30
+    final_output = (grpc_nodes + others)[:30]
 
-    # 4. 写入结果
+    # 3. 写入文件
     with open('top_asia_nodes.txt', 'w', encoding='utf-8') as f:
-        f.write(f"# 狗熊·私人优先版 | 私人: {len(private_nodes)} | 总数: {len(final_list)} | 更新: {time.strftime('%Y-%m-%d %H:%M')}\n")
-        for i, node in enumerate(final_list):
+        f.write(f"# 狗熊·私有30强 | 数量: {len(final_output)} | 更新: {time.strftime('%Y-%m-%d %H:%M')}\n")
+        for i, node in enumerate(final_output):
             clean_link = node.split('#')[0]
             low = clean_link.lower()
             tag = "GRPC" if "grpc" in low else ("HY2" if "hy" in low else ("TUIC" if "tuic" in low else "HTTP"))
             f.write(f"{clean_link}#🚀狗熊_{tag}_{i+1:02d}\n")
     
-    print(f"🎉 生产完毕！私人源已置顶，共导出 {len(final_list)} 个节点。")
+    print(f"🎉 任务完成！已从你的私有源中选出 {len(final_output)} 个节点。")
 
 if __name__ == "__main__":
     process()
