@@ -1,3 +1,2 @@
 https://proxypool.dmit.dpdns.org/vmess/sub
-https://raw.githubusercontent.com/10ium/VpnClashFaCollector/refs/heads/main/sub/all/hysteria2.txt
-https://raw.githubusercontent.com/snakem982/proxypool/main/source/v2ray-2.txt
+https://fastly.jsdelivr.net/gh/dongchengjie/airport@main/subs/merged/tested_within.yaml
