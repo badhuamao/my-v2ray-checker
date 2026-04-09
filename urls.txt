@@ -1,14 +1,5 @@
 https://raw.githubusercontent.com/Argh73/VpnConfigCollector/refs/heads/main/Splitted-By-Protocol/Hysteria2.txt
 https://raw.githubusercontent.com/Argh73/VpnConfigCollector/refs/heads/main/Splitted-By-Protocol/Tuic.txt
 https://raw.githubusercontent.com/Argh94/V2RayAutoConfig/refs/heads/main/configs/Hysteria2.txt
-https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/refs/heads/main/channels/networks/grpc
-https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/refs/heads/main/channels/networks/http
-https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/refs/heads/main/networks/grpc
-https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/refs/heads/main/networks/http
-https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/refs/heads/main/subscribe/networks/grpc
-https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/refs/heads/main/subscribe/networks/http
-https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/split-by-protocols/hy2.txt
-https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/split-by-protocols/hysteria.txt
-https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/split-by-protocols/hysteria2.txt
 https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/split-by-protocols/tuic.txt
 
