@@ -22,8 +22,14 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install requests
-          # 预装 sing-box，为后续深层探测做准备
-          sudo bash <(curl -L https://raw.githubusercontent.com/SagerNet/sing-box/main/install.sh)
+          
+          # 修复版安装命令：手动拉取二进制文件
+          # 这样能绕过 bash <(curl) 带来的环境路径问题
+          VERSION="1.8.11"
+          curl -Lo sing-box.tar.gz https://github.com/SagerNet/sing-box/releases/download/v${VERSION}/sing-box-${VERSION}-linux-amd64.tar.gz
+          tar -xzf sing-box.tar.gz
+          sudo mv sing-box-${VERSION}-linux-amd64/sing-box /usr/local/bin/
+          sing-box version
 
       - name: Run Multi-threaded Bear Script
         run: python main.py
@@ -33,4 +39,4 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add top_asia_nodes.txt
-          git diff --quiet && git diff --staged --quiet || (git commit -m "🐻 狗熊节点自动精筛更新: $(date +'%Y-%m-%d %H:%M:%S')" && git push)
+          git diff --quiet && git diff --staged --quiet || (git commit -m "🐻 狗熊节点精筛更新: $(date +'%Y-%m-%d %H:%M:%S')" && git push)
