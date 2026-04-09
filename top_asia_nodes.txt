@@ -1,4 +1,1 @@
-# 狗熊精选 | 有效: 3 | 更新: 2026-04-09 14:48:49
-tuic://9bbd1f42-7ae7-4239-bd10-a68de95e3295:dongtaiwang.com@ip1.758733.xyz:10088?allow_insecure=1&alpn=h3&congestion_control=bbr&congestion_controller=bbr&sni=apple.com&udp_relay_mode=native&version=5#[🚀其他狗熊] 01_107ms
-hy2://123456789StrongPass@144.31.224.14:443/?insecure=1&sni=www.cloudflare.com#[🚀其他狗熊] 02_121ms
-tuic://87bc1693-8860-41d7-acf4-e6edf49abbbb:crivAv10hAdr-fop4Lne@70.34.197.98:443?congestion_control=bbr&amp%3Budp_relay_mode=native&amp%3Balpn=h3%2Cspdy/3.1&amp%3Ballow_insecure=1#[🚀其他狗熊] 03_122ms
+# 狗熊·全能订阅 | 来源数: 1 | 数量: 0 | 更新: 2026-04-09 15:09
