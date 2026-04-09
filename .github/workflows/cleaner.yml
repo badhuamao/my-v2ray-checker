@@ -1,0 +1,19 @@
+name: 🧹 狗熊工厂-日志清理
+
+on:
+  schedule:
+    - cron: "30 20 * * *" # 在每天生产完成后 30 分钟进行清理
+  workflow_dispatch:
+
+permissions: write-all
+
+jobs:
+  delete-runs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 执行清理
+        uses: dongchengjie/workflow-runs-cleaner@v1
+        with:
+          repository: ${{ github.repository }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          maintain-span: "1d" # 只保留最近 24 小时记录
