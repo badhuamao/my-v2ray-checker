@@ -2,7 +2,6 @@ import base64, requests, socket, time, os, json, re, subprocess
 from urllib.parse import urlparse, unquote
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# 地区映射表保持不变
 REGION_MAP = {
     '香港': ['HK', 'HONGKONG', '香港', 'HKG'],
     '日本': ['JP', 'JAPAN', '日本', 'TOKYO', 'OSAKA'],
@@ -28,42 +27,29 @@ def safe_base64_decode(data):
 
 def test_real_connectivity(node):
     """
-    核心升级：利用 sing-box 进行真实协议握手探测
+    核心：使用真实 TCP 握手 + 美东 IP 权重
+    (由于 Actions 环境限制，我们先用强化版 TCP 验证，并加入美东优先逻辑)
     """
-    temp_config = f"config_{node['addr']}.json"
     try:
-        # 针对 TUIC 协议注入高级伪装（借鉴自 rtlvpn/junk）
-        if node['is_hy2'] or node['raw'].startswith('tuic://'):
-            # 这里简化处理：我们主要是看握手能否成功
-            # 实际上 sing-box 可以直接通过命令行或临时配置测试
-            pass
-
-        # 构造一个极其简单的测试逻辑：尝试解析并连接
-        # 在 GitHub Actions 这种受限环境下，我们使用 sing-box 的探测模式
-        # 这里的命令：sing-box 能够通过 raw 链接直接测试或通过生成的临时 json
+        host, port = node['addr'], node['port']
+        target_ip = socket.gethostbyname(host)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(2.5) # 超过2.5秒直接视为垃圾节点
         
         start = time.time()
-        # 模拟实测：这里我们调用 sing-box 检查节点
-        # 注意：此步需要 check.yml 里已经安装了 sing-box
-        cmd = ["sing-box", "run", "-c", "temp_test_config.json"] # 这是一个占位逻辑
-        
-        # 实际操作中，为了脚本兼容性，我们先保留一个增强版的 TCP 探测
-        # 但加入了一个“应用层心跳”判断
-        target_ip = socket.gethostbyname(node['addr'])
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(2.5) # 缩短超时，只要快的
-        sock.connect((target_ip, int(node['port'])))
-        
-        # 如果是美东 ClawCloud 段，给一个加权（咱们发现美东稳）
+        result = sock.connect_ex((target_ip, int(port)))
         delay = int((time.time() - start) * 1000)
-        if "47.253" in node['addr']: 
-            delay -= 50 # 优选权
-            
-        node['delay'] = max(delay, 1)
         sock.close()
-        return node
-    except:
-        return None
+
+        if result == 0:
+            # 💡 咱们的秘密武器：美东 IP 权重 (ClawCloud)
+            if "47.253" in node['addr'] or "47.90" in node['addr']:
+                delay = max(delay - 60, 10) # 给美东 IP 60ms 的“心理提速”，让它们排在前面
+            
+            node['delay'] = delay
+            return node
+    except: pass
+    return None
 
 def process():
     all_raw_nodes = []
@@ -73,13 +59,12 @@ def process():
     
     seen_ips = set()
 
-    # 1. 抓取与解析
+    # 1. 抓取解析
     for link in sub_links:
         try:
             r = requests.get(link, headers={'User-Agent': 'v2rayN/6.23'}, timeout=12)
             if r.status_code != 200: continue
-            response_text = r.text
-            content = safe_base64_decode(response_text) if "://" not in response_text[:20] else response_text
+            content = safe_base64_decode(r.text) if "://" not in r.text[:20] else r.text
             
             for line in content.splitlines():
                 line = line.strip()
@@ -104,24 +89,24 @@ def process():
                     all_raw_nodes.append({'raw': line, 'addr': addr, 'port': port, 'name': raw_name, 'is_hy2': is_hy2})
         except: continue
 
-    # 2. 多线程【精筛】探测 (提高到 20 线程)
-    print(f"🚀 狗熊工厂启动，正在精筛 {len(all_raw_nodes)} 个节点...")
+    # 2. 多线程精筛 (20线程)
+    print(f"🚀 狗熊工厂正在精选节点（并发: 20）...")
     valid_nodes = []
     with ThreadPoolExecutor(max_workers=20) as executor:
         futures = [executor.submit(test_real_connectivity, n) for n in all_raw_nodes]
         for future in as_completed(futures):
             res = future.result()
-            if res:
-                valid_nodes.append(res)
+            if res: valid_nodes.append(res)
 
-    # 3. 排序与输出 (只取前 30 个最强悍的)
+    # 3. 排序并只取前 35 个精华
     valid_nodes.sort(key=lambda x: x['delay'])
     with open('top_asia_nodes.txt', 'w', encoding='utf-8') as f:
         f.write(f"# 狗熊精选 | 有效: {len(valid_nodes)} | 更新: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
         region_counter = {}
-        for n in valid_nodes[:30]:
+        for n in valid_nodes[:35]:
             reg = get_region_name(n['name'])
-            display_reg = f"💎{reg}" if n['is_hy2'] else reg
+            # 标上咱们的专属记号
+            display_reg = f"🚀{reg}" if n['is_hy2'] else reg
             region_counter[display_reg] = region_counter.get(display_reg, 0) + 1
             new_name = f"[{display_reg}狗熊] {region_counter[display_reg]:02d}_{n['delay']}ms"
             
@@ -134,7 +119,7 @@ def process():
             else:
                 raw = f"{raw.split('#')[0]}#{new_name}"
             f.write(f"{raw}\n")
-    print(f"🎉 任务完成！已将最稳的 {len(valid_nodes[:30])} 个节点存入仓库。")
+    print(f"🎉 完成！已精选 {len(valid_nodes[:35])} 个最速节点。")
 
 if __name__ == "__main__":
     process()
