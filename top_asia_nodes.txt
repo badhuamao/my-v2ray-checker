@@ -1,5 +1,5 @@
-# 狗熊·独立国际版 | 数量: 30 | 更新: 2026-04-24 07:52
-hysteria2://hysteria_master_password@72.56.122.195:443?insecure=1&sni=www.bing.com#🌐 🐻_HY2_01
+# 狗熊·独立国际版 | 数量: 30 | 更新: 2026-04-24 13:08
+hysteria2://b4bd0613-ff7c-4f2f-954d-185915e6ddad@5.175.249.174:35000?insecure=0&sni=api.kermanshahi.org&obfs=salamander&obfs-password=@JavidnamanIran-Javid-SHAH-KingRezaPahlavi#🇩🇪 🐻_HY2_01
 hysteria2://qQe1z5kU8kN6SlKnDt9Ru3Qp@vpn-sg-003.fastervpn.world:443?insecure=1&sni=vpn-sg-003.fastervpn.world#🇸🇬 🐻_HY2_02
 hysteria2://qQe1z5kU8kN6SlKnDt9Ru3Qp@vpn-sg-002.fastervpn.world:443?insecure=1&sni=vpn-sg-002.fastervpn.world#🇸🇬 🐻_HY2_03
 hysteria2://3260904a-10b2-4fe0-bb1e-579836ee1f53@sg12.352343.cc:8080?sni=sg12.352343.cc#🇸🇬 🐻_HY2_04
